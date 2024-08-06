@@ -1,0 +1,396 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="MAIN" Id="{2c735906-2965-459b-8d25-e886979e7cc1}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MAIN
+VAR
+	Lidar_zones:  Safety_Zones; 
+	encoderPosition AT  %I* : UDINT;
+	actualAxisPosition AT  %I* : LREAL;
+	actualAxisPositionA AT  %I* : LREAL;
+	Left_Encoder : LREAL;
+	Right_Encoder : LREAL;
+	setPositionA AT  %I* : LREAL ;
+	setPositionB AT  %I* : LREAL ;
+	AxisB : AXIS_REF; //left Motor
+	AxisA : AXIS_REF; //Right Motor
+	AxisC : AXIS_REF; //Roller Axis
+	timer : TON;
+	// Motor 1
+	McPower : MC_Power;
+	McReset : MC_Reset;
+	McJogging : MC_Jog;
+	McVelocity : MC_MoveVelocity;
+	McStop :  MC_Stop;
+	McHalt : MC_Halt;
+	McSetPositionA: MC_SetPosition;
+	McSetPosition: MC_SetPosition;
+	McPosition : MC_ReadActualPosition;
+	McPositionA : MC_ReadActualPosition;
+	McRelativeVelocity : MC_MoveRelative;
+	
+
+	// Motor 2
+	McPowerA : MC_Power;
+	McResetA : MC_Reset;
+	McJoggingA : MC_Jog;
+	McVelocityA : MC_MoveVelocity;
+	McStopA :  MC_Stop;
+	McHaltA : MC_Halt;
+	
+	CppVelocityValue : DINT;
+	CppVelocityCmd : DINT;
+	RightVelocityValue : REAL;
+	LeftVelocityValue : REAL;
+	RightVelocityCmd : REAL;
+	LeftVelocityCmd : REAL;
+	RollerVelocityValue : REAL;
+	RollerVelocityCmd : REAL;
+	RightVelocity_meters : REAL;
+	LeftVelocity_meters : REAL;
+	acc : REAL:=0;
+	dcc : REAL:=0;
+	jk	: REAL:=0;
+	myvelocity : DINT;
+	cppvar AT %I* : BOOL;
+	pypositive AT %I* : BOOL;
+	pynegative AT %I* : BOOL;
+	pyturnright AT %I* : BOOL;
+	pyturnleft AT %I* : BOOL;
+	state : DINT;
+	stop AT %I* : BOOL;
+	fright AT %I* : BOOL;
+	bright AT %I* : BOOL;
+	fleft AT %I* : BOOL;
+	bleft AT %I* : BOOL;
+	roller_forward     AT %I* : BOOL;
+	roller_backwrad    AT %I* : BOOL;
+	ChargeSignal       AT %Q* : BOOL;
+	Lift_UP            AT %Q* : BOOL:= FALSE;
+	Lift_DOWN          AT %Q* : BOOL;
+	Lift_UP_Signal	   AT %M* : BOOL;
+	Lift_DOWN_Signal   AT %M* : BOOL;
+	Lift_Stop          AT %M* : BOOL;
+	FrontLidarWarning  AT %I* : BOOL;
+	BackLidarWarning   AT %I* : BOOL;
+
+	stopvalue : BOOL;
+	Acceleration: LREAL;
+	Options: INT;
+	nVAR: REAL;
+	
+	time_first_read : INT;
+	time_second_read : INT;
+	//Lidar Zones
+	zon_1_set          AT %M* : BOOL; 
+	zon_2_set          AT %M* : BOOL; 
+	zon_3_set          AT %M* : BOOL; 
+	zon_4_set          AT %M* : BOOL; 
+	zon_5_set          AT %M* : BOOL; 
+	zon_6_set          AT %M* : BOOL;    
+	
+	
+	
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SYSTEM();
+Meters_Travelled();
+Ladder_Logic_Diagram();
+encoderPosition;
+TP_and_TON_For_timeout();
+
+IF GVLLD.first_read THEN	
+time_first_read := STRING_TO_INT (GVL.SystemSeconds);
+END_IF
+IF GVLLD.second_read THEN	
+time_second_read := STRING_TO_INT (GVL.SystemSeconds);
+END_IF
+
+// Axis B Left Motor
+AxisB.ReadStatus();
+McPower(Axis:=AxisB,Enable := TRUE,Enable_Positive := TRUE, Enable_Negative := TRUE);
+McSetPosition(Axis:= AxisB,Execute:= TRUE, Position := setPositionA);
+McPosition(Axis := AxisB,Enable := TRUE );
+actualAxisPosition := McPosition.Position;
+Left_Encoder := actualAxisPosition ;
+
+// Axis A Right Motor
+AxisA.ReadStatus();
+McPowerA(Axis:=AxisA,Enable := TRUE,Enable_Positive := TRUE, Enable_Negative := TRUE);
+McSetPositionA(Axis:= AxisA,Execute:= TRUE, Position := setPositionB);
+McPositionA(Axis := AxisA,Enable := TRUE );
+actualAxisPositionA := McPositionA.Position;
+Right_Encoder := actualAxisPositionA ;
+
+
+CppVelocityCmd := CppVelocityValue;
+RightVelocity_meters := RightVelocityCmd /1000 ;
+LeftVelocity_meters := LeftVelocityCmd / 1000 ;
+IF NOT GVLLD.view_safety THEN
+	RightVelocityCmd := 0;
+	LeftVelocityCmd := 0;
+	RollerVelocityCmd := 0;
+	ELSE IF NOT FrontLidarWarning OR NOT BackLidarWarning THEN
+		RightVelocityCmd := RightVelocityValue * 0.9;
+		LeftVelocityCmd := LeftVelocityValue * 0.9;
+	ELSE IF FrontLidarWarning OR BackLidarWarning THEN
+		RightVelocityCmd := RightVelocityValue;
+		LeftVelocityCmd := LeftVelocityValue;
+		RollerVelocityCmd := RollerVelocityValue;
+		END_IF
+	END_IF
+END_IF
+
+stopvalue := stop;
+
+
+
+CASE state OF 
+	0: 	
+		state := 10;
+	10: 
+	
+		McReset(Axis := AxisB,Execute := TRUE);
+		McResetA(Axis := AxisA,Execute := TRUE);
+		IF McReset.Done AND McResetA.Done  THEN
+			state := 20;
+		ELSIF NOT McReset.Done OR NOT McResetA.Done THEN 
+			McReset(Axis := AxisB,Execute := FALSE);
+			McResetA(Axis := AxisA,Execute := FALSE);
+			McReset(Axis := AxisB,Execute := TRUE);
+			McResetA(Axis := AxisA,Execute := TRUE);
+			state := 20;
+		END_IF
+		
+	20: 
+	
+		McPowerA(Axis:=AxisA,Enable := TRUE,Enable_Positive := TRUE, Enable_Negative := TRUE);
+		McPower(Axis:=AxisB,Enable := TRUE,Enable_Positive := TRUE, Enable_Negative := TRUE);
+		IF McPower.Status AND McPowerA.Status THEN
+			McReset(Axis := AxisB,Execute := TRUE);
+			McResetA(Axis := AxisA,Execute := TRUE);
+			IF McReset.Done AND McResetA.Done  THEN
+				state :=50;
+			ELSIF NOT McReset.Done OR NOT McResetA.Done THEN 
+				McReset(Axis := AxisB,Execute := FALSE);
+				McResetA(Axis := AxisA,Execute := FALSE);
+				McReset(Axis := AxisB,Execute := TRUE);
+				McResetA(Axis := AxisA,Execute := TRUE);
+				state :=50;
+			END_IF
+		END_IF
+		
+	
+	//CPP Function Block
+//	40: 
+		
+//		McVelocityA (Axis:= AxisA,
+//					Execute := cppvar,
+//					Velocity := CppVelocityCmd,
+//						Acceleration := acc,
+//						Deceleration := dcc,
+//						Jerk := jk,
+//					Direction := MC_Direction.MC_Positive_Direction ) ;
+//		McVelocity (Axis:= AxisB,
+//					Execute := cppvar,
+//					Velocity := CppVelocityCmd,
+//						Acceleration := acc,
+//						Deceleration := dcc,
+//						Jerk := jk,
+//					Direction := MC_Direction.MC_Positive_Direction ) ;
+//		McVelocityA (Axis:= AxisA,
+//					Execute := cppvar,
+//					Velocity := CppVelocityCmd,
+//						Acceleration := acc,
+//						Deceleration := dcc,
+//						Jerk := jk,
+//					Direction := MC_Direction.MC_Negative_Direction ) ;
+//		McVelocity (Axis:= AxisB,
+//					Execute := cppvar,
+//					Velocity := CppVelocityCmd,
+//						Acceleration := acc,
+//						Deceleration := dcc,
+//						Jerk := jk,
+//					Direction := MC_Direction.MC_Negative_Direction ) ;
+//		IF stopvalue THEN
+//			McVelocity(Axis := AxisB, Execute := FALSE); 
+//			McVelocityA(Axis := AxisA, Execute := FALSE); 
+//			state := 900;
+//		END_IF
+//		IF fright OR fleft OR bright OR bleft THEN 
+//			McVelocity(Axis := AxisB, Execute := FALSE);
+//			McVelocityA(Axis := AxisA, Execute := FALSE);
+//			state := 50;
+//		END_IF
+		
+		
+	//Python Function Block
+	50: 
+		// POSİTİVE
+		IF AxisA.Status.Error OR AxisB.Status.Error THEN 
+			McReset(Axis := AxisB,Execute := FALSE);
+			McResetA(Axis := AxisA,Execute := FALSE);
+			McReset(Axis := AxisB,Execute := TRUE);
+			McResetA(Axis := AxisA,Execute := TRUE);
+//			state :=0;
+		END_IF
+		IF stopvalue THEN
+			
+			McVelocity(Axis := AxisB, Execute := FALSE); 
+			McVelocityA(Axis := AxisA, Execute := FALSE);
+			state := 900;
+		END_IF
+		IF GVLLD.auto_charge_signal THEN   
+   			McVelocity(Axis := AxisB, Execute := FALSE);    
+			McVelocityA(Axis := AxisA, Execute := FALSE);
+  			state := 400;  
+		END_IF
+		
+		McVelocityA (Axis:= AxisA,
+						Execute := fright,
+						Velocity := RightVelocityCmd,
+						Acceleration := acc,
+						Deceleration := dcc,
+						Jerk := jk,
+						Direction := MC_Direction.MC_Positive_Direction ) ;
+		McVelocityA (Axis:= AxisA,
+						Execute := bright,
+						Velocity := RightVelocityCmd,
+						Acceleration := acc,
+						Deceleration := dcc,
+						Jerk := jk,
+						Direction := MC_Direction.MC_Negative_Direction ) ;
+		McVelocity (Axis:= AxisB,
+						Execute := fleft,
+						Velocity := LeftVelocityCmd,
+						Acceleration := acc,
+						Deceleration := dcc,
+						Jerk := jk,
+						Direction := MC_Direction.MC_Positive_Direction ) ;
+		McVelocity (Axis:= AxisB,
+						Execute := bleft,
+						Velocity := LeftVelocityCmd,
+						Acceleration := acc,
+						Deceleration := dcc,
+						Jerk := jk,
+						Direction := MC_Direction.MC_Negative_Direction ) ;
+// Roller Velocity Blocks
+//Forward
+//		MC_MoveContinuousRelative(Axis:=AxisC,
+//								Execute:= roller_forward,
+//								Distance:= 5000,
+//								Velocity:= 1000,
+//								EndVelocity:= 0,
+//								Acceleration:= acc,
+//								Deceleration:= dcc,
+//								Jerk:= jk);
+////Backward 
+//		MC_MoveContinuousRelative(Axis:=AxisC,
+//								Execute:= roller_backwrad,
+//								Distance:= 5000,
+//								Velocity:= RollerVelocityValue,
+//								EndVelocity:= 0,
+//								Acceleration:= acc,
+//								Deceleration:= dcc,
+//								Jerk:= jk);
+		IF cppvar THEN 
+			McVelocity(Axis := AxisB, Execute := FALSE);
+			McVelocityA(Axis := AxisA, Execute := FALSE);
+			state := 40;
+		END_IF
+	400:  
+		IF AxisA.Status.Error OR AxisB.Status.Error THEN 
+		   	McReset(Axis := AxisB,Execute := FALSE);   
+			McResetA(Axis := AxisA,Execute := FALSE);
+		   	McReset(Axis := AxisB,Execute := TRUE);   
+			McResetA(Axis := AxisA,Execute := TRUE);
+  		END_IF
+    	McStop(Axis := AxisB, Execute := TRUE);
+  		McStopA(Axis := AxisA, Execute := TRUE);  
+  		IF NOT GVLLD.auto_charge_signal THEN   
+			McStop(Axis := AxisB, Execute := FALSE); 
+			McVelocity(Axis := AxisB, Execute := FALSE);    
+			McStopA(Axis := AxisA, Execute := FALSE); 
+			McVelocityA(Axis := AxisA, Execute := FALSE);    
+			state := 50;
+  		END_IF
+	900:
+		IF AxisA.Status.Error OR AxisB.Status.Error THEN 
+			McReset(Axis := AxisB,Execute := FALSE);
+			McResetA(Axis := AxisA,Execute := FALSE);
+			McReset(Axis := AxisB,Execute := TRUE);
+			McResetA(Axis := AxisA,Execute := TRUE);
+		END_IF
+		McStop(Axis := AxisB, Execute := TRUE);
+		McStopA(Axis := AxisA, Execute := TRUE);
+		IF fright OR fleft OR bright OR bleft OR pyturnleft OR cppvar THEN
+			McStop(Axis := AxisB, Execute := FALSE); 
+			McVelocity(Axis := AxisB, Execute := FALSE); 
+			McStopA(Axis := AxisA, Execute := FALSE); 
+			McVelocityA(Axis := AxisA, Execute := FALSE); 
+			state := 50;
+		END_IF
+		
+		
+		
+END_CASE
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+	]]></ST>
+    </Implementation>
+    <LineIds Name="MAIN">
+      <LineId Id="3353" Count="3" />
+      <LineId Id="3942" Count="0" />
+      <LineId Id="3933" Count="0" />
+      <LineId Id="3357" Count="0" />
+      <LineId Id="3934" Count="1" />
+      <LineId Id="3937" Count="1" />
+      <LineId Id="3929" Count="0" />
+      <LineId Id="3932" Count="0" />
+      <LineId Id="3359" Count="22" />
+      <LineId Id="3746" Count="0" />
+      <LineId Id="3382" Count="5" />
+      <LineId Id="3747" Count="0" />
+      <LineId Id="3388" Count="28" />
+      <LineId Id="3639" Count="0" />
+      <LineId Id="3643" Count="1" />
+      <LineId Id="3642" Count="0" />
+      <LineId Id="3418" Count="0" />
+      <LineId Id="3647" Count="3" />
+      <LineId Id="3646" Count="0" />
+      <LineId Id="3651" Count="0" />
+      <LineId Id="3645" Count="0" />
+      <LineId Id="3419" Count="96" />
+      <LineId Id="3748" Count="0" />
+      <LineId Id="3516" Count="0" />
+      <LineId Id="3736" Count="2" />
+      <LineId Id="3842" Count="0" />
+      <LineId Id="3739" Count="0" />
+      <LineId Id="3741" Count="1" />
+      <LineId Id="3749" Count="0" />
+      <LineId Id="3751" Count="3" />
+      <LineId Id="3843" Count="0" />
+      <LineId Id="3755" Count="1" />
+      <LineId Id="3750" Count="0" />
+      <LineId Id="3517" Count="40" />
+      <LineId Id="2337" Count="17" />
+      <LineId Id="18" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>
