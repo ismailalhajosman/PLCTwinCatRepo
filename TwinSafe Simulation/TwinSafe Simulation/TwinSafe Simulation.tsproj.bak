@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<TcSmProject xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.beckhoff.com/schemas/2012/07/TcSmProject" TcSmVersion="1.0" TcVersion="3.1.4024.42">
+	<Project ProjectGUID="{01246028-0B6E-432C-96AE-B04A0B5211D7}" Target64Bit="true" ShowHideConfigurations="#x106">
+		<Safety>
+			<Project GUID="{003FBBD9-B5AC-45B9-B0DA-D82D87D10A0A}" Name="TwinSafeDemo" PrjFilePath="TwinSafeDemo\TwinSafeDemo.splcProj" TmcFilePath="TwinSafeDemo\TwinSafeDemo.tmc" GeneralArchiveSettings="#x000f" TargetArchiveSettings="#x0007" FileArchiveSettings="#x000e">
+				<Instance Id="#x01010010" KeepUnrestoredLinks="2">
+					<Name>TwinSafeDemo Instance</Name>
+					<TmcDesc GUID="{72A6D5B8-E98C-4604-8B90-09D1F8AB38A9}">
+						<Name>Safety</Name>
+						<InitSequence>PO</InitSequence>
+						<Contexts>
+							<Context>
+								<Id>1</Id>
+								<Name>Default</Name>
+							</Context>
+						</Contexts>
+					</TmcDesc>
+				</Instance>
+			</Project>
+		</Safety>
+	</Project>
+</TcSmProject>
